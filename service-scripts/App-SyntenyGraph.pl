@@ -1,5 +1,5 @@
 #
-# The TnSeq application.
+# The FastQ Utils application.
 #
 
 use Bio::KBase::AppService::AppScript;
@@ -15,17 +15,17 @@ use IPC::Run qw(run);
 use Cwd;
 use Clone;
 
-my $script = Bio::KBase::AppService::AppScript->new(\&process_tnseq);
+my $script = Bio::KBase::AppService::AppScript->new(\&process_synteny);
 
 my $rc = $script->run(\@ARGV);
 
 exit $rc;
 
-sub process_tnseq
+sub process_synteny
 {
     my($app, $app_def, $raw_params, $params) = @_;
 
-    print "Proc tnseq ", Dumper($app_def, $raw_params, $params);
+    print "Proc synteny graph ", Dumper($app_def, $raw_params, $params);
 
     my $token = $app->token();
     my $output_folder = $app->result_folder();
@@ -60,38 +60,10 @@ sub process_tnseq
     my $params_to_app = Clone::clone($params);
     my @to_stage;
 
-    for my $repname (keys %{$params_to_app->{read_files}})
-    {
-	my $replist = $params_to_app->{read_files}->{$repname};
-	for my $repinst (@{$replist->{replicates}})
-	{
-	    #
-	    # Hack to patch mismatch between UI and tool
-	    #
-	    if (exists($repinst->{read}))
-	    {
-		$repinst->{read1} = delete $repinst->{read};
-	    }
-	    
-	    for my $rd (qw(read1 read2))
-	    {
-		if (exists($repinst->{$rd}))
-		{
-		    my $nameref = \$repinst->{$rd};
-		    $in_files{$$nameref} = $nameref;
-		    push(@to_stage, $$nameref);
-		}
-	    }
-	}
-    }
-    warn Dumper(\%in_files, \@to_stage);
-    my $staged = $app->stage_in(\@to_stage, $stage_dir, 1);
-    while (my($orig, $staged_file) = each %$staged)
-    {
-	my $path_ref = $in_files{$orig};
-	$$path_ref = $staged_file;
-    }
-
+    #for my $read_tuple (@{$params_to_app->{paired_end_libs}})
+              
+    my $staged = {};
+    
     #
     # Write job description.
     #
@@ -99,8 +71,14 @@ sub process_tnseq
     open(JDESC, ">", $jdesc) or die "Cannot write $jdesc: $!";
     print JDESC JSON::XS->new->pretty(1)->encode($params_to_app);
     close(JDESC);
-
-    my @cmd = ("p3_tnseq", "--jfile", $jdesc, "--sstring", $sstring, "-o", $work_dir);
+    my $gdesc = "$cwd/input_genomes.txt";
+    open(GENOMEIDS, ">", $gdesc) or die "Cannot write $gdesc: $!";
+    print GENOMEIDS join ',', @{$params_to_app->{genome_ids}};
+    close(GENOMEIDS);
+    #python fam_to_graph.py --layout --output data/BrucellaInversion/test_psgraph.gexf --patric_pgfam
+    #/home/asw3xp/projects/git_repos/cid_work/pangenome_graphs/fam_to_graph.py
+    #my @cmd = ("fam_to_graph.py", "--ksize", $params_to_app->{ksize}, "--diversity", $params_to_app->{diversity},\
+    my @cmd = ("python", "fam_to_graph.py", "--ksize", $params_to_app->{ksize}, "--diversity", $params_to_app->{diversity},"--alpha", $params_to_app->{alpha}, "--layout", "--context", $params_to_app->{context}, "--output", "$work_dir/ps_graph.gexf", "--patric_genomes", $gdesc);
 
     warn Dumper(\@cmd, $params_to_app);
     
@@ -111,30 +89,21 @@ sub process_tnseq
     }
 
 
-    my @output_suffixes = ([qr/\.bam$/, "bam"],
-			   [qr/\.bam\.bai$/, "bam"],
-			   [qr/\.counts$/, "txt"],
-			   [qr/\.tn_stats$/, "txt"],
-			   [qr/\.txt$/, "txt"],
-			   [qr/\.wig$/, "wig"]);
+    my @output_suffixes = ([qr/\.gexf$/, "gexf"],
+			   [qr/\.txt$/, "txt"]);
 
     my $outfile;
     opendir(D, $work_dir) or die "Cannot opendir $work_dir: $!";
     my @files = sort { $a cmp $b } grep { -f "$work_dir/$_" } readdir(D);
 
-    # Get the receipe to try to pull the overall output file.
-    my $recipe = $params->{recipe};
-    my $output;
+    my $output=1;
     for my $file (@files)
     {
-	if ($recipe && $file =~ /^$recipe.*transit.txt/)
-	{
-	    $output = read_file("$work_dir/$file");
-	}
 	for my $suf (@output_suffixes)
 	{
 	    if ($file =~ $suf->[0])
 	    {
+ 	    	$output=0;
 		my $path = "$output_folder/$file";
 		my $type = $suf->[1];
 		

@@ -101,6 +101,7 @@ my($opt, $usage) =
 		     ["phage", "Set defaults for phage annotation."],
 		     ["recipe=s", "Use the given non-default recipe for this annotation"],
 		     ["reference-genome=s", "The PATRIC identifier of a reference genome whose annotations will be propagated as part of this annotation."],
+		     ["reference-virus=s", "The name of a virus from the VIGOR_DB collection to use as the reference for a vigor4 viral annotation."],
 		     [],
 		     ["The following options describe the genome to be annotated."],
 		     ["In each case where the value for the specified option may be drawn"],
@@ -119,6 +120,9 @@ my($opt, $usage) =
 		     ["index-nowait", "Do not wait for indexing to complete before the job is marked as complete."],
 		     ["no-index", "Do not index this genome. If this option is selected the genome will not be visible on the PATRIC website."],
 		     ["dry-run", "Dry run. Upload files and validate input but do not submit annotation"],
+		     ["container-id=s", "Container id for non-default container execution", { hidden => 1 }],
+		     ["indexing-url=s", "Specify an override data api for indexing", { hidden => 1 }],
+		     ["public", "Make the indexed genome publicly available", { hidden => 1 }],
 		     [],
 		     ["help|h", "Show this help message"],
 		    );
@@ -266,6 +270,10 @@ my $params = {
     ($opt->recipe ? (recipe => $opt->recipe) : ()),
     (defined($workflow) ? (workflow => $workflow_txt) : ()),
     ($opt->no_index ? (skip_indexing => 1) : ()),
+    ($opt->reference_virus ? (reference_virus_name => $opt->reference_virus) : ()),
+    ($opt->container_id ? (container_id => $opt->container_id) : ()),
+    ($opt->indexing_url ? (indexing_url => $opt->indexing_url) : ()),
+    ($opt->public ? (public => 1) : ()),
 };
 
 if ($input_mode eq 'genbank')

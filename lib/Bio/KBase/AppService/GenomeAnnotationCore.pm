@@ -189,7 +189,15 @@ sub run_pipeline
 	    print STDERR "Copy $out_dir/$f to $output_folder\n";
 	    my $ok = IPC::Run::run(['p3-cp',
 				    "-r",
+				    '-m', 'ini=txt',
+				    '-m', 'aln=txt',
+				    '-m', 'cds=feature_protein_fasta',
+				    '-m', 'pep=feature_protein_fasta',
+				    '-m', 'gff3=gff',
+				    '-m', 'rpt=txt',
 				    '-m', 'txt=txt',
+				    '-m', 'tbl=txt',
+				    '-m', 'warnings=txt',
 				    '-m', 'html=html',
 				    "$out_dir/$f",
 				    "ws:$output_folder"]);
@@ -227,7 +235,7 @@ sub default_workflow
 		    prune_invalid_CDS_features_parameters => { minimum_contig_length => 0,
 								   max_homopolymer_frequency => 0.9 } },
 	      { name => 'annotate_proteins_kmer_v2', kmer_v2_parameters => {} },
-	      { name => 'annotate_proteins_kmer_v1', kmer_v1_parameters => { annotate_null_only => 1 } },
+	      # { name => 'annotate_proteins_kmer_v1', kmer_v1_parameters => { annotate_null_only => 1 } },
               { name => 'annotate_proteins_phage', phage_parameters => { annotate_null_only => 1 } },
 	      { name => 'annotate_proteins_similarity', similarity_parameters => { annotate_null_only => 1 } },
 	      { name => 'propagate_genbank_feature_metadata',
@@ -243,9 +251,10 @@ sub default_workflow
 	      { name => 'annotate_families_patric' },
 	      { name => 'annotate_null_to_hypothetical' },
 	      { name => 'project_subsystems', failure_is_not_fatal => 1 },
-	      { name => 'find_close_neighbors', failure_is_not_fatal => 1 },
+	      # { name => 'find_close_neighbors', failure_is_not_fatal => 1 },
 	      { name => 'annotate_strain_type_MLST' },
 		  # { name => 'call_features_prophage_phispy' },
+	      { name => 'compute_genome_quality_control' },
 	      { name => 'evaluate_genome',
 		    failure_is_not_fatal => 1,
 		    evaluate_genome_parameters => {},
@@ -275,7 +284,8 @@ sub import_workflow
 	      { name => 'project_subsystems', failure_is_not_fatal => 1 },
 	      { name => 'find_close_neighbors', failure_is_not_fatal => 1 },
 	      { name => 'annotate_strain_type_MLST' },
-	      { name => 'evaluate_genome', failure_is_not_fatal => 1 },
+	      { name => 'compute_genome_quality_control' },
+	      { name => 'evaluate_genome', failure_is_not_fatal => 1, evaluate_genome_parameters => {} },
 		 );
     my $workflow = { stages => \@stages };
 
@@ -310,9 +320,9 @@ sub write_output
     # Map export format to the file type.
     my %formats = (genbank => ['genbank_file', "$output_base.gb" ],
 		   genbank_merged => ['genbank_file', "$output_base.merged.gb"],
-		   spreadsheet_xls => ['string', "$output_base.xls"],
-		   spreadsheet_txt => ['string', "$output_base.txt"],
-		   seed_dir => ['string',"$output_base.tar.gz"],
+		   spreadsheet_xls => ['xls', "$output_base.xls"],
+		   spreadsheet_txt => ['tsv', "$output_base.txt"],
+		   seed_dir => ['tar_gz',"$output_base.tar.gz"],
 		   feature_data => ['feature_table', "$output_base.features.txt"],
 		   protein_fasta => ['feature_protein_fasta', "$output_base.feature_protein.fasta"],
 		   contig_fasta => ['contigs', "$output_base.contigs.fasta"],
@@ -358,6 +368,7 @@ sub write_output
     # Assume here that AWE has placed us into a directory into which we can write.
     #
 
+    my $queue_id;
     if (!$no_index)
     {
 	if (write_load_files($ws, $tmp_genome, $genbank_file, $public_flag))
@@ -365,10 +376,12 @@ sub write_output
 	    my $load_folder = "$output_folder/load_files";
 	    
 	    $ws->create({overwrite => 1, objects => [[$load_folder, 'folder']]});
-	    $self->submit_load_files($ws, $load_folder, $self->token->token, data_api_url, ".", $queue_nowait);
+
+	    my $data_api_url = $self->params->{indexing_url} // data_api_url;
+	    $queue_id = $self->submit_load_files($ws, $load_folder, $self->token->token, $data_api_url, ".", $queue_nowait);
 	}
     }
-    return $gto_path;
+    return($gto_path, $queue_id);
 }
 
 
@@ -451,7 +464,7 @@ sub submit_load_files
 
     print "Submitted indexing job $queue_id\n";
 
-    return if $queue_nowait;
+    return $queue_id if $queue_nowait;
 
     my $solr = SolrAPI->new($data_api_url);
 
@@ -479,6 +492,7 @@ sub submit_load_files
 	}
 	sleep 60;
     }
+    return $queue_id;
 }
 
 #
